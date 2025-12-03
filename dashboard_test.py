@@ -457,9 +457,9 @@ def generate_test_dashboard(output_path: str = 'dashboard_test.html'):
             </div>
         </div>
         
-        <!-- Section 3: Current Holdings -->
+        <!-- Section 3: End Date Holdings -->
         <div class="section">
-            <h2>3. Current Holdings ({len(holdings_df)} stocks)</h2>
+            <h2>3. End Date Holdings ({len(holdings_df)} stocks)</h2>
             <p>As of: {rankings_test.index[-1].strftime('%Y-%m-%d') if len(rankings_test) > 0 else 'N/A'}</p>
             
             <table>

@@ -809,9 +809,9 @@ def generate_html_report(
             </div>
         </div>
         
-        <!-- Section 3: Current Holdings -->
+        <!-- Section 3: End Date Holdings -->
         <div class="section">
-            <h2>3. Current Holdings</h2>
+            <h2>3. End Date Holdings</h2>
             <p>As of: {rankings.index[-1].strftime('%Y-%m-%d') if hasattr(rankings.index[-1], 'strftime') else rankings.index[-1]}</p>
             
             <table>

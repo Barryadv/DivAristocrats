@@ -19,9 +19,18 @@ EXCLUSION_RATIOS = [0.20, 0.40, 0.60, 0.80]
 # DATA PARAMETERS
 # =============================================================================
 
+# Source Excel file with Bloomberg tickers
+TICKER_SOURCE_FILE = "DivScreen_5Dec25.xlsx"
+
+# Cached data file (output of save_data.py, input for data_preparation.py)
+CACHED_DATA_FILE = "Data_5Dec25.xlsx"
+
+# Minimum weeks of data required (to ensure full history)
+MIN_DATA_WEEKS = 465
+
 # Full data download period (covers both train and test)
-DATA_START_DATE = "2017-01-01"
-DATA_END_DATE = "2025-11-28"
+DATA_START_DATE = "2016-12-21"  # Match Excel Price column date
+DATA_END_DATE = "2025-12-05"
 
 # Data frequency
 DATA_FREQUENCY = "1wk"  # Weekly data
@@ -29,21 +38,22 @@ DATA_FREQUENCY = "1wk"  # Weekly data
 # =============================================================================
 # TRAINING PERIOD (In-Sample)
 # =============================================================================
-TRAIN_START_DATE = "2017-01-01"
+TRAIN_START_DATE = "2016-12-21"
 TRAIN_END_DATE = "2024-12-21"
 
 # =============================================================================
 # TEST PERIOD (Out-of-Sample)
 # =============================================================================
-TEST_WARMUP_DATE = "2024-10-01"  # Need 8+ weeks before test start for rankings
+TEST_WARMUP_DATE = "2024-03-01"  # 40+ weeks before test start (hardened for any lookback)
 TEST_START_DATE = "2025-01-01"
-TEST_END_DATE = "2025-11-28"
+TEST_END_DATE = "2025-12-05"
 
 # =============================================================================
-# OPTIMAL STRATEGY PARAMETERS
+# OPTIMAL STRATEGY PARAMETERS (Selected from backtest results)
 # =============================================================================
-OPTIMAL_LOOKBACK = 8
-OPTIMAL_EXCLUSION = 0.40
+# Best performing: 28w lookback, 80% exclusion (24.11% CAGR)
+OPTIMAL_LOOKBACK = 28
+OPTIMAL_EXCLUSION = 0.80
 
 # =============================================================================
 # PORTFOLIO PARAMETERS
@@ -51,6 +61,11 @@ OPTIMAL_EXCLUSION = 0.40
 
 # Initial portfolio value (for wealth calculations)
 INITIAL_PORTFOLIO_VALUE = 100
+
+# Trading cost in basis points (25bp = 0.25%)
+# 25bp is reasonable for EM dividend aristocrats (>$1bn market cap, liquid names)
+# Full EM costs can be 50-70bp but that includes market impact for large trades
+TRADING_COST_BP = 25
 
 # Rebalancing frequency (in weeks)
 REBALANCE_FREQUENCY = 1  # Rebalance every week
@@ -92,6 +107,9 @@ def get_config_summary() -> str:
     summary.append("=" * 50)
     summary.append("BACKTEST CONFIGURATION")
     summary.append("=" * 50)
+    summary.append(f"Ticker source: {TICKER_SOURCE_FILE}")
+    summary.append(f"Cached data file: {CACHED_DATA_FILE}")
+    summary.append(f"Min data weeks: {MIN_DATA_WEEKS}")
     summary.append(f"Lookback periods: {LOOKBACK_WEEKS} weeks")
     summary.append(f"Exclusion ratios: {[get_exclusion_ratio_label(r) for r in EXCLUSION_RATIOS]}")
     summary.append(f"Data download: {DATA_START_DATE} to {DATA_END_DATE}")

@@ -16,13 +16,17 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-import yfinance as yf
 from pathlib import Path
 from datetime import datetime, timedelta
 import base64
 from io import BytesIO
 import warnings
 warnings.filterwarnings('ignore')
+
+from config import (
+    OPTIMAL_LOOKBACK, OPTIMAL_EXCLUSION, TRADING_COST_BP,
+    TRAIN_START_DATE, TRAIN_END_DATE
+)
 
 
 # Sector mapping for tickers (Bloomberg ticker -> GICS Sector)
@@ -171,7 +175,8 @@ def fig_to_base64(fig) -> str:
     return img_base64
 
 
-def create_performance_chart(portfolio_values: pd.Series, benchmark_values: pd.Series) -> str:
+def create_performance_chart(portfolio_values: pd.Series, benchmark_values: pd.Series, 
+                             strategy_label: str = None, title: str = None) -> str:
     """Create performance chart with alpha shading."""
     fig, ax = plt.subplots(figsize=(12, 6))
     
@@ -189,8 +194,10 @@ def create_performance_chart(portfolio_values: pd.Series, benchmark_values: pd.S
     benchmark_norm = (benchmark_weekly / benchmark_weekly.iloc[0]) * 100
     
     # Plot lines
+    if strategy_label is None:
+        strategy_label = f'DivArist {OPTIMAL_LOOKBACK}w/{int(OPTIMAL_EXCLUSION*100)}%'
     ax.plot(portfolio_norm.index, portfolio_norm.values, 
-            label='DivArist 8w/40%', linewidth=2, color='#2E86AB')
+            label=strategy_label, linewidth=2, color='#2E86AB')
     ax.plot(benchmark_norm.index, benchmark_norm.values,
             label='EEM Benchmark', linewidth=2, color='#F18F01')
     
@@ -205,13 +212,162 @@ def create_performance_chart(portfolio_values: pd.Series, benchmark_values: pd.S
     ax.axhline(y=100, color='black', linestyle=':', alpha=0.5)
     ax.set_xlabel('Date', fontsize=11)
     ax.set_ylabel('Portfolio Value (Start = 100)', fontsize=11)
-    ax.set_title('Performance vs Benchmark with Alpha', fontsize=14, fontweight='bold')
+    if title is None:
+        title = f'{strategy_label} vs EEM Benchmark'
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(loc='upper left')
     ax.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
     plt.tight_layout()
     
     return fig_to_base64(fig)
+
+
+def create_performance_chart_vs_ew(portfolio_values: pd.Series, ew_values: pd.Series) -> str:
+    """Create performance chart comparing DivArist vs EW Div Aristocrats B&H."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Align dates - resample both to weekly (Monday)
+    portfolio_weekly = portfolio_values.resample('W-MON').last().dropna()
+    ew_weekly = ew_values.resample('W-MON').last().dropna()
+    
+    # Find common dates
+    common_dates = portfolio_weekly.index.intersection(ew_weekly.index)
+    portfolio_weekly = portfolio_weekly.loc[common_dates]
+    ew_weekly = ew_weekly.loc[common_dates]
+    
+    # Normalize both to 100
+    portfolio_norm = (portfolio_weekly / portfolio_weekly.iloc[0]) * 100
+    ew_norm = (ew_weekly / ew_weekly.iloc[0]) * 100
+    
+    # Plot lines
+    strategy_label = f'DivArist {OPTIMAL_LOOKBACK}w/{int(OPTIMAL_EXCLUSION*100)}%'
+    ax.plot(portfolio_norm.index, portfolio_norm.values, 
+            label=strategy_label, linewidth=2, color='#2E86AB')
+    ax.plot(ew_norm.index, ew_norm.values,
+            label='EW Div Aristocrats B&H', linewidth=2, color='#6B8E23')
+    
+    # Shade alpha region
+    ax.fill_between(portfolio_norm.index, ew_norm.values, portfolio_norm.values,
+                    where=(portfolio_norm.values >= ew_norm.values),
+                    alpha=0.3, color='green', label='Outperformance')
+    ax.fill_between(portfolio_norm.index, ew_norm.values, portfolio_norm.values,
+                    where=(portfolio_norm.values < ew_norm.values),
+                    alpha=0.3, color='red', label='Underperformance')
+    
+    ax.axhline(y=100, color='black', linestyle=':', alpha=0.5)
+    ax.set_xlabel('Date', fontsize=11)
+    ax.set_ylabel('Portfolio Value (Start = 100)', fontsize=11)
+    ax.set_title('DivArist Strategy vs Equal-Weight Buy & Hold', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper left')
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    return fig_to_base64(fig)
+
+
+def create_alpha_heatmap_vs_ew(portfolio_values: pd.Series, ew_values: pd.Series, title: str) -> str:
+    """Create monthly alpha heatmap vs EW Div Aristocrats B&H."""
+    # Align dates - resample to weekly
+    portfolio_weekly = portfolio_values.resample('W-MON').last().dropna()
+    ew_weekly = ew_values.resample('W-MON').last().dropna()
+    
+    # Find common dates
+    common_dates = portfolio_weekly.index.intersection(ew_weekly.index)
+    portfolio_weekly = portfolio_weekly.loc[common_dates]
+    ew_weekly = ew_weekly.loc[common_dates]
+    
+    # Calculate returns
+    port_returns = portfolio_weekly.pct_change().dropna()
+    ew_returns = ew_weekly.pct_change().dropna()
+    
+    # Calculate alpha (excess return)
+    alpha = port_returns - ew_returns
+    
+    # Resample to monthly
+    monthly_alpha = alpha.resample('M').apply(lambda x: (1 + x).prod() - 1) * 100
+    
+    # Create pivot table
+    df = pd.DataFrame({
+        'Year': monthly_alpha.index.year,
+        'Month': monthly_alpha.index.month,
+        'Alpha': monthly_alpha.values
+    })
+    pivot = df.pivot(index='Year', columns='Month', values='Alpha')
+    
+    # Create heatmap
+    fig, ax = plt.subplots(figsize=(12, 4))
+    
+    cmap = mcolors.LinearSegmentedColormap.from_list('rg', ['#d73027', '#ffffff', '#1a9850'])
+    
+    max_abs = max(abs(pivot.min().min()), abs(pivot.max().max()))
+    max_abs = max(max_abs, 5)
+    
+    im = ax.imshow(pivot.values, cmap=cmap, aspect='auto', vmin=-max_abs, vmax=max_abs)
+    
+    month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    ax.set_xticks(range(12))
+    ax.set_xticklabels(month_labels)
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels(pivot.index)
+    
+    for i in range(len(pivot.index)):
+        for j in range(12):
+            if j + 1 in pivot.columns:
+                val = pivot.iloc[i, pivot.columns.get_loc(j + 1)]
+                if pd.notna(val):
+                    color = 'white' if abs(val) > max_abs * 0.5 else 'black'
+                    ax.text(j, i, f'{val:.1f}', ha='center', va='center', 
+                           fontsize=9, color=color, fontweight='bold')
+    
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    plt.colorbar(im, ax=ax, label='Alpha (%)')
+    plt.tight_layout()
+    
+    return fig_to_base64(fig)
+
+
+def create_statistics_vs_ew(portfolio_values: pd.Series, ew_values: pd.Series) -> dict:
+    """Calculate portfolio statistics vs EW Div Aristocrats B&H."""
+    # Align to weekly
+    portfolio_weekly = portfolio_values.resample('W-MON').last().dropna()
+    ew_weekly = ew_values.resample('W-MON').last().dropna()
+    
+    common_dates = portfolio_weekly.index.intersection(ew_weekly.index)
+    portfolio_weekly = portfolio_weekly.loc[common_dates]
+    ew_weekly = ew_weekly.loc[common_dates]
+    
+    # Normalize
+    port_norm = (portfolio_weekly / portfolio_weekly.iloc[0]) * 100
+    ew_norm = (ew_weekly / ew_weekly.iloc[0]) * 100
+    
+    # Returns (weekly)
+    port_returns = port_norm.pct_change().dropna()
+    ew_returns = ew_norm.pct_change().dropna()
+    
+    n_periods = len(port_norm)
+    years = n_periods / 52
+    
+    def calc_stats(values, returns):
+        total_ret = (values.iloc[-1] / values.iloc[0] - 1) * 100
+        cagr = ((values.iloc[-1] / values.iloc[0]) ** (1/years) - 1) * 100
+        volatility = returns.std() * np.sqrt(52) * 100
+        sharpe = (cagr - 5) / volatility if volatility > 0 else 0
+        max_dd = ((values / values.cummax()) - 1).min() * 100
+        return {
+            'Total Return': total_ret,
+            'CAGR': cagr,
+            'Volatility': volatility,
+            'Sharpe Ratio': sharpe,
+            'Max Drawdown': max_dd
+        }
+    
+    return {
+        'Portfolio': calc_stats(port_norm, port_returns),
+        'EW_BH': calc_stats(ew_norm, ew_returns)
+    }
 
 
 def create_statistics_table(portfolio_values: pd.Series, benchmark_values: pd.Series) -> dict:
@@ -363,42 +519,31 @@ def get_current_holdings(rankings: pd.DataFrame, n_hold: int = 26) -> list:
 
 
 def fetch_stock_info(tickers: list) -> pd.DataFrame:
-    """Fetch stock information from Yahoo Finance."""
-    data = []
+    """Get stock information from cached Excel database."""
+    from config import CACHED_DATA_FILE
     
+    script_dir = Path(__file__).parent
+    cache_path = script_dir / CACHED_DATA_FILE
+    
+    # Load wealth data to get latest prices (normalized to 100 at start)
+    try:
+        wealth_usd = pd.read_excel(cache_path, sheet_name='Wealth_USD', index_col=0)
+        latest_wealth = wealth_usd.iloc[-1]  # Latest week's wealth values
+    except Exception as e:
+        print(f"  Warning: Could not load cached data: {e}")
+        latest_wealth = pd.Series()
+    
+    data = []
     for bb_ticker in tickers:
-        yf_ticker = YF_TICKER_MAP.get(bb_ticker)
-        if not yf_ticker:
-            continue
-            
-        try:
-            stock = yf.Ticker(yf_ticker)
-            info = stock.info
-            
-            # Get latest price
-            hist = stock.history(period='1d')
-            price = hist['Close'].iloc[-1] if len(hist) > 0 else info.get('regularMarketPrice', 0)
-            
-            data.append({
-                'Ticker': bb_ticker,
-                'Country': get_country(bb_ticker),
-                'Sector': get_sector(bb_ticker),
-                'Price': price,
-                'Market Cap ($B)': info.get('marketCap', 0) / 1e9,
-                'P/E Ratio': info.get('trailingPE', np.nan),
-                'Div Yield (%)': info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0,
-            })
-        except Exception as e:
-            print(f"  Warning: Could not fetch {bb_ticker}: {e}")
-            data.append({
-                'Ticker': bb_ticker,
-                'Country': get_country(bb_ticker),
-                'Sector': get_sector(bb_ticker),
-                'Price': np.nan,
-                'Market Cap ($B)': np.nan,
-                'P/E Ratio': np.nan,
-                'Div Yield (%)': np.nan,
-            })
+        # Get latest wealth value (normalized price index)
+        wealth_value = latest_wealth.get(bb_ticker, np.nan)
+        
+        data.append({
+            'Ticker': bb_ticker,
+            'Country': get_country(bb_ticker),
+            'Sector': get_sector(bb_ticker),
+            'Wealth Index': wealth_value,  # Normalized to 100 at start
+        })
     
     return pd.DataFrame(data)
 
@@ -465,20 +610,18 @@ def create_trade_log(rankings: pd.DataFrame, n_hold: int = 26, n_weeks: int = 12
 def generate_holdings_rows(holdings_df: pd.DataFrame) -> str:
     """Generate HTML rows for holdings table."""
     rows = []
-    for _, row in holdings_df.iterrows():
-        pe_val = f"{row['P/E Ratio']:.1f}" if pd.notna(row['P/E Ratio']) else 'N/A'
-        mktcap = f"{row['Market Cap ($B)']:.1f}" if pd.notna(row['Market Cap ($B)']) else 'N/A'
-        div_yield = f"{row['Div Yield (%)']:.1f}%" if pd.notna(row['Div Yield (%)']) else 'N/A'
+    for i, (_, row) in enumerate(holdings_df.iterrows(), 1):
+        wealth_val = f"{row['Wealth Index']:.1f}" if pd.notna(row['Wealth Index']) else 'N/A'
+        weight_val = f"{row['Weight (%)']:.1f}%" if 'Weight (%)' in row else 'N/A'
         
         rows.append(f"""
                 <tr>
+                    <td>{i}</td>
                     <td>{row['Ticker']}</td>
                     <td>{row['Country']}</td>
                     <td>{row['Sector']}</td>
-                    <td>{row['Weight (%)']:.1f}%</td>
-                    <td>{mktcap}</td>
-                    <td>{pe_val}</td>
-                    <td>{div_yield}</td>
+                    <td>{weight_val}</td>
+                    <td>{wealth_val}</td>
                 </tr>""")
     return ''.join(rows)
 
@@ -586,6 +729,7 @@ def generate_trade_rows(trade_log: pd.DataFrame) -> str:
 def generate_html_report(
     portfolio_values: pd.Series,
     benchmark_values: pd.Series,
+    ew_values: pd.Series,
     rankings: pd.DataFrame,
     output_path: str
 ):
@@ -595,54 +739,83 @@ def generate_html_report(
     print("="*60)
     
     report_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+    momentum_label = f'{OPTIMAL_LOOKBACK}w/{int(OPTIMAL_EXCLUSION*100)}% Momentum'
     
-    # 1. Performance chart
-    print("  Creating performance chart...")
-    perf_chart = create_performance_chart(portfolio_values, benchmark_values)
+    # === SECTION 1: EW Div Aristocrats vs EEM ===
+    print("  Creating EW vs EEM performance chart...")
+    perf_chart_ew_vs_eem = create_performance_chart(ew_values, benchmark_values, 
+                                                     strategy_label='EW Div Aristocrats',
+                                                     title='EW Div Aristocrats vs EEM Benchmark')
     
-    # 2. Statistics
-    print("  Calculating statistics...")
-    stats = create_statistics_table(portfolio_values, benchmark_values)
+    print("  Calculating EW vs EEM statistics...")
+    stats_ew_vs_eem = create_statistics_table(ew_values, benchmark_values)
     
-    # 3. Monthly return heatmap (portfolio)
+    # === SECTION 2: Momentum Strategy vs EEM ===
+    print("  Creating Momentum vs EEM performance chart...")
+    perf_chart_momentum_vs_eem = create_performance_chart(portfolio_values, benchmark_values,
+                                                           strategy_label=momentum_label,
+                                                           title=f'{momentum_label} vs EEM Benchmark')
+    
+    print("  Calculating Momentum vs EEM statistics...")
+    stats_momentum_vs_eem = create_statistics_table(portfolio_values, benchmark_values)
+    
+    # === SECTION 3: Momentum vs EW (head-to-head) ===
+    print("  Creating Momentum vs EW performance chart...")
+    perf_chart_momentum_vs_ew = create_performance_chart_vs_ew(portfolio_values, ew_values)
+    
+    print("  Calculating Momentum vs EW statistics...")
+    stats_momentum_vs_ew = create_statistics_vs_ew(portfolio_values, ew_values)
+    
+    # === Monthly Analysis ===
     print("  Creating monthly return heatmap...")
     port_returns = portfolio_values.pct_change()
-    monthly_heatmap = create_monthly_heatmap(portfolio_values, 'Monthly Returns - DivArist Portfolio')
+    monthly_heatmap = create_monthly_heatmap(portfolio_values, f'Monthly Returns - {momentum_label}')
     
-    # 4. Monthly alpha heatmap
-    print("  Creating monthly alpha heatmap...")
+    print("  Creating monthly alpha heatmap vs EEM...")
     port_norm = (portfolio_values / portfolio_values.iloc[0]) * 100
     bench_norm = (benchmark_values / benchmark_values.iloc[0]) * 100
-    alpha_series = port_norm - bench_norm + 100  # Rebased alpha
-    alpha_heatmap = create_monthly_heatmap(alpha_series, 'Monthly Alpha vs EEM')
+    alpha_series = port_norm - bench_norm + 100
+    alpha_heatmap = create_monthly_heatmap(alpha_series, f'{momentum_label} - Monthly Alpha vs EEM')
     
-    # 5. Histogram
-    print("  Creating return histograms...")
+    print("  Creating monthly alpha heatmap vs EW...")
+    alpha_heatmap_ew = create_alpha_heatmap_vs_ew(portfolio_values, ew_values, 
+                                                   f'{momentum_label} - Monthly Alpha vs EW')
+    
+    print("  Creating EW vs EEM alpha heatmap...")
+    alpha_heatmap_ew_vs_eem = create_alpha_heatmap_vs_ew(ew_values, benchmark_values, 
+                                                         'EW Div Aristocrats - Monthly Alpha vs EEM')
+    
+    print("  Creating return histograms (Momentum vs EEM)...")
     bench_returns = benchmark_values.pct_change()
     histogram = create_histogram(port_returns, bench_returns)
     
-    # 6. Current holdings
+    print("  Creating return histograms (EW vs EEM)...")
+    ew_returns = ew_values.pct_change()
+    histogram_ew = create_histogram(ew_returns, bench_returns)
+    
+    # Calculate n_hold based on number of stocks and exclusion ratio
+    n_stocks = len(rankings.columns)
+    n_hold = int(n_stocks * (1 - OPTIMAL_EXCLUSION))
+    print(f"  Stocks in universe: {n_stocks}, Holding: {n_hold} (top {int((1-OPTIMAL_EXCLUSION)*100)}%)")
+    
+    # 9. Current holdings
     print("  Fetching current holdings data...")
-    holdings = get_current_holdings(rankings)
+    holdings = get_current_holdings(rankings, n_hold)
     holdings_df = fetch_stock_info(holdings)
     
     # Add weight column (equal weight)
-    holdings_df['Weight (%)'] = 100 / len(holdings_df)
+    holdings_df['Weight (%)'] = 100 / len(holdings_df) if len(holdings_df) > 0 else 0
     
-    # 7. Exposure charts
+    # 10. Exposure charts
     print("  Creating exposure charts...")
     exposure_chart = create_exposure_charts(holdings_df)
     
-    # 8. Trade log
-    print("  Generating trade log...")
-    trade_log = create_trade_log(rankings)
+    # 11. Trade log (last 4 weeks)
+    print("  Generating trade log (last 4 weeks)...")
+    trade_log = create_trade_log(rankings, n_hold, n_weeks=4)
     
     # Generate HTML
     print("  Generating HTML report...")
-    
-    # Import config for strategy info
-    from config import TRAIN_START_DATE, TRAIN_END_DATE, OPTIMAL_LOOKBACK, OPTIMAL_EXCLUSION
-    strategy_name = f'{OPTIMAL_LOOKBACK}w/{int(OPTIMAL_EXCLUSION*100)}%'
     
     html_template = f'''
 <!DOCTYPE html>
@@ -756,42 +929,139 @@ def generate_html_report(
         <h1>DivArist Dashboard <span class="train-badge">TRAINING</span></h1>
         <p class="report-date">Generated: {report_date}</p>
         <p class="report-date">Training Period: {TRAIN_START_DATE} to {TRAIN_END_DATE}</p>
-        <p class="report-date">Selected Strategy: {strategy_name}</p>
+        <p class="report-date">Trading Cost: {TRADING_COST_BP}bp</p>
         
         <!-- Summary Box -->
         <div class="summary-box">
             <h3 style="margin-top: 0; color: #2E86AB;">Training Period Summary</h3>
-            <p><strong>Portfolio:</strong> {stats['Portfolio']['Total Return']:.1f}% total return | 
-               {stats['Portfolio']['CAGR']:.1f}% CAGR | 
-               {stats['Portfolio']['Sharpe Ratio']:.2f} Sharpe</p>
-            <p><strong>Benchmark (EEM):</strong> {stats['Benchmark']['Total Return']:.1f}% total return | 
-               {stats['Benchmark']['CAGR']:.1f}% CAGR | 
-               {stats['Benchmark']['Sharpe Ratio']:.2f} Sharpe</p>
-            <p><strong>Alpha:</strong> {stats['Portfolio']['Total Return'] - stats['Benchmark']['Total Return']:+.1f}% excess return</p>
+            
+            <p style="color: #6B8E23; font-weight: bold; margin-top: 15px;">📊 EW Div Aristocrats (Buy & Hold)</p>
+            <p style="margin-left: 20px;">{stats_ew_vs_eem['Portfolio']['Total Return']:.1f}% total return | 
+               {stats_ew_vs_eem['Portfolio']['CAGR']:.1f}% CAGR | 
+               {stats_ew_vs_eem['Portfolio']['Sharpe Ratio']:.2f} Sharpe |
+               <span style="color: {'#28a745' if stats_ew_vs_eem['Portfolio']['Total Return'] > stats_ew_vs_eem['Benchmark']['Total Return'] else '#dc3545'}">
+               {stats_ew_vs_eem['Portfolio']['Total Return'] - stats_ew_vs_eem['Benchmark']['Total Return']:+.1f}% vs EEM</span></p>
+            
+            <p style="color: #2E86AB; font-weight: bold; margin-top: 15px;">📈 {momentum_label}</p>
+            <p style="margin-left: 20px;">{stats_momentum_vs_eem['Portfolio']['Total Return']:.1f}% total return | 
+               {stats_momentum_vs_eem['Portfolio']['CAGR']:.1f}% CAGR | 
+               {stats_momentum_vs_eem['Portfolio']['Sharpe Ratio']:.2f} Sharpe |
+               <span style="color: {'#28a745' if stats_momentum_vs_eem['Portfolio']['Total Return'] > stats_momentum_vs_eem['Benchmark']['Total Return'] else '#dc3545'}">
+               {stats_momentum_vs_eem['Portfolio']['Total Return'] - stats_momentum_vs_eem['Benchmark']['Total Return']:+.1f}% vs EEM</span></p>
+            
+            <p style="color: #F18F01; font-weight: bold; margin-top: 15px;">🌍 EEM Benchmark</p>
+            <p style="margin-left: 20px;">{stats_ew_vs_eem['Benchmark']['Total Return']:.1f}% total return | 
+               {stats_ew_vs_eem['Benchmark']['CAGR']:.1f}% CAGR | 
+               {stats_ew_vs_eem['Benchmark']['Sharpe Ratio']:.2f} Sharpe</p>
         </div>
         
-        <!-- Section 1: Executive Summary -->
+        <!-- Section 1: EW Div Aristocrats vs EEM Benchmark -->
         <div class="section">
-            <h2>1. Performance vs Benchmark</h2>
+            <h2>1. EW Div Aristocrats vs EEM Benchmark</h2>
+            <p style="color: #aaa; font-size: 14px;">Equal-weight buy & hold of all dividend aristocrats (initial cost only, no rebalancing)</p>
             <div class="chart">
-                <img src="data:image/png;base64,{perf_chart}" alt="Performance Chart">
+                <img src="data:image/png;base64,{perf_chart_ew_vs_eem}" alt="EW vs EEM">
             </div>
             
             <h3>Key Statistics</h3>
             <table class="stats-table">
                 <tr>
                     <th>Metric</th>
-                    <th>DivArist</th>
+                    <th>EW Div Aristocrats</th>
                     <th>EEM</th>
-                    <th>Difference</th>
+                    <th>Alpha</th>
                 </tr>
-                {generate_stats_table(stats)}
+                {generate_stats_table(stats_ew_vs_eem)}
+            </table>
+            
+            <h3>Monthly Alpha vs EEM</h3>
+            <div class="chart">
+                <img src="data:image/png;base64,{alpha_heatmap_ew_vs_eem}" alt="EW vs EEM Monthly Alpha">
+            </div>
+            
+            <h3>Return & Alpha Distribution</h3>
+            <div class="chart">
+                <img src="data:image/png;base64,{histogram_ew}" alt="EW Return Distribution">
+            </div>
+        </div>
+        
+        <!-- Section 2: Momentum Strategy vs EEM Benchmark -->
+        <div class="section">
+            <h2>2. {momentum_label} vs EEM Benchmark</h2>
+            <p style="color: #aaa; font-size: 14px;">Weekly rebalanced momentum strategy with {TRADING_COST_BP}bp trading costs</p>
+            <div class="chart">
+                <img src="data:image/png;base64,{perf_chart_momentum_vs_eem}" alt="Momentum vs EEM">
+            </div>
+            
+            <h3>Key Statistics</h3>
+            <table class="stats-table">
+                <tr>
+                    <th>Metric</th>
+                    <th>{momentum_label}</th>
+                    <th>EEM</th>
+                    <th>Alpha</th>
+                </tr>
+                {generate_stats_table(stats_momentum_vs_eem)}
             </table>
         </div>
         
-        <!-- Section 2: Return Analysis -->
+        <!-- Section 3: Momentum vs EW (Head-to-Head) -->
         <div class="section">
-            <h2>2. Monthly Return Analysis</h2>
+            <h2>3. Strategy Comparison: Momentum vs EW Buy & Hold</h2>
+            <p style="color: #aaa; font-size: 14px;">Does the momentum strategy outperform simple buy & hold after trading costs?</p>
+            <div class="chart">
+                <img src="data:image/png;base64,{perf_chart_momentum_vs_ew}" alt="Momentum vs EW B&H">
+            </div>
+            
+            <h3>Key Statistics</h3>
+            <table class="stats-table">
+                <tr>
+                    <th>Metric</th>
+                    <th>{momentum_label}</th>
+                    <th>EW B&H</th>
+                    <th>Difference</th>
+                </tr>
+                <tr>
+                    <td>Total Return</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Total Return']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['EW_BH']['Total Return']:.1f}%</td>
+                    <td class="{'positive' if stats_momentum_vs_ew['Portfolio']['Total Return'] > stats_momentum_vs_ew['EW_BH']['Total Return'] else 'negative'}">{stats_momentum_vs_ew['Portfolio']['Total Return'] - stats_momentum_vs_ew['EW_BH']['Total Return']:+.1f}%</td>
+                </tr>
+                <tr>
+                    <td>CAGR</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['CAGR']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['EW_BH']['CAGR']:.1f}%</td>
+                    <td class="{'positive' if stats_momentum_vs_ew['Portfolio']['CAGR'] > stats_momentum_vs_ew['EW_BH']['CAGR'] else 'negative'}">{stats_momentum_vs_ew['Portfolio']['CAGR'] - stats_momentum_vs_ew['EW_BH']['CAGR']:+.1f}%</td>
+                </tr>
+                <tr>
+                    <td>Volatility</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Volatility']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['EW_BH']['Volatility']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Volatility'] - stats_momentum_vs_ew['EW_BH']['Volatility']:+.1f}%</td>
+                </tr>
+                <tr>
+                    <td>Sharpe Ratio</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Sharpe Ratio']:.2f}</td>
+                    <td>{stats_momentum_vs_ew['EW_BH']['Sharpe Ratio']:.2f}</td>
+                    <td class="{'positive' if stats_momentum_vs_ew['Portfolio']['Sharpe Ratio'] > stats_momentum_vs_ew['EW_BH']['Sharpe Ratio'] else 'negative'}">{stats_momentum_vs_ew['Portfolio']['Sharpe Ratio'] - stats_momentum_vs_ew['EW_BH']['Sharpe Ratio']:+.2f}</td>
+                </tr>
+                <tr>
+                    <td>Max Drawdown</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Max Drawdown']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['EW_BH']['Max Drawdown']:.1f}%</td>
+                    <td>{stats_momentum_vs_ew['Portfolio']['Max Drawdown'] - stats_momentum_vs_ew['EW_BH']['Max Drawdown']:+.1f}%</td>
+                </tr>
+            </table>
+            
+            <h3>Monthly Alpha vs EW Buy & Hold</h3>
+            <div class="chart">
+                <img src="data:image/png;base64,{alpha_heatmap_ew}" alt="Alpha Heatmap vs EW B&H">
+            </div>
+        </div>
+        
+        <!-- Section 4: Return Analysis -->
+        <div class="section">
+            <h2>4. Monthly Return Analysis</h2>
             
             <h3>Portfolio Monthly Returns</h3>
             <div class="chart">
@@ -809,30 +1079,27 @@ def generate_html_report(
             </div>
         </div>
         
-        <!-- Section 3: End Date Holdings -->
+        <!-- Section 5: End Date Holdings -->
         <div class="section">
-            <h2>3. End Date Holdings</h2>
+            <h2>5. End Date Holdings ({momentum_label}) - {len(holdings_df)} stocks</h2>
             <p>As of: {rankings.index[-1].strftime('%Y-%m-%d') if hasattr(rankings.index[-1], 'strftime') else rankings.index[-1]}</p>
             
             <table>
                 <tr>
+                    <th>#</th>
                     <th>Ticker</th>
                     <th>Country</th>
                     <th>Sector</th>
                     <th>Weight</th>
-                    <th>Market Cap ($B)</th>
-                    <th>P/E Ratio</th>
-                    <th>Div Yield</th>
+                    <th>Wealth Index</th>
                 </tr>
                 {generate_holdings_rows(holdings_df)}
                 <tr style="font-weight: bold; background-color: #0f3460;">
+                    <td></td>
                     <td>PORTFOLIO TOTAL</td>
-                    <td>-</td>
-                    <td>-</td>
+                    <td colspan="2">{len(holdings_df)} stocks</td>
                     <td>100.0%</td>
-                    <td>{holdings_df['Market Cap ($B)'].sum():.1f}</td>
-                    <td>{holdings_df['P/E Ratio'].mean():.1f}</td>
-                    <td>{holdings_df['Div Yield (%)'].mean():.1f}%</td>
+                    <td>Avg: {holdings_df['Wealth Index'].mean():.1f}</td>
                 </tr>
             </table>
             
@@ -842,9 +1109,9 @@ def generate_html_report(
             </div>
         </div>
         
-        <!-- Section 4: Trade Log -->
+        <!-- Section 6: Trade Log -->
         <div class="section">
-            <h2>4. Recent Trades (Last 3 Months)</h2>
+            <h2>6. Recent Trades (Last 4 Weeks)</h2>
             <table>
                 <tr>
                     <th>Date</th>
@@ -858,7 +1125,7 @@ def generate_html_report(
         
         <hr style="border-color: #333;">
         <p style="text-align: center; color: #666; font-size: 12px;">
-            DivArist Training Dashboard | Strategy: {strategy_name} | Generated by Python
+            DivArist Training Dashboard | {momentum_label} | Generated by Python
         </p>
     </div>
 </body>
@@ -875,14 +1142,18 @@ def generate_html_report(
 
 def main():
     """Generate the dashboard."""
-    from config import TRAIN_START_DATE, TRAIN_END_DATE, OPTIMAL_LOOKBACK, OPTIMAL_EXCLUSION
-    
     script_dir = Path(__file__).parent
     
-    # Load simulation data (daily) - Training period
+    # Load simulation data - Training period
     print("Loading training simulation data...")
-    sim_results = pd.read_excel(script_dir / 'portfolio_simulation_results.xlsx', 
-                                 sheet_name='Train_EEM_Daily')
+    
+    # Load EEM data
+    eem_results = pd.read_excel(script_dir / 'portfolio_simulation_results.xlsx', 
+                                 sheet_name='Train_EEM')
+    
+    # Load EW Div Aristocrats data
+    ew_results = pd.read_excel(script_dir / 'portfolio_simulation_results.xlsx', 
+                                sheet_name='Train_EW_DivArist')
     
     # Load backtest results for portfolio values
     backtest_results = pd.read_excel(script_dir / 'backtest_results.xlsx',
@@ -892,9 +1163,13 @@ def main():
     rankings = pd.read_excel(script_dir / 'backtest_data.xlsx',
                              sheet_name=f'Rankings_{OPTIMAL_LOOKBACK}w', index_col=0)
     
-    # Get EEM daily values
-    eem_values = sim_results.set_index('Date')['Portfolio_Value']
+    # Get EEM values
+    eem_values = eem_results.set_index('Date')['Portfolio_Value']
     eem_values.index = pd.to_datetime(eem_values.index)
+    
+    # Get EW Div Aristocrats values
+    ew_values = ew_results.set_index('Date')['Portfolio_Value']
+    ew_values.index = pd.to_datetime(ew_values.index)
     
     # Get DivArist values (weekly, will align)
     strategy_key = f'{OPTIMAL_LOOKBACK}w_{int(OPTIMAL_EXCLUSION*100)}%'
@@ -908,11 +1183,22 @@ def main():
                                        (divarist_values.index <= train_end)]
     rankings = rankings[(rankings.index >= train_start) & (rankings.index <= train_end)]
     
-    # Generate report
-    output_path = script_dir / 'dashboard.html'
-    generate_html_report(divarist_values, eem_values, rankings, str(output_path))
+    # Create Dashboards folder and generate timestamped filename
+    output_dir = script_dir / 'Dashboards'
+    output_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
-    print("\nDone! Open dashboard.html in a browser to view.")
+    # Save timestamped version
+    output_path_timestamped = output_dir / f'dashboard_train_{timestamp}.html'
+    generate_html_report(divarist_values, eem_values, ew_values, rankings, str(output_path_timestamped))
+    
+    # Also save to root for easy access
+    output_path_latest = script_dir / 'dashboard.html'
+    generate_html_report(divarist_values, eem_values, ew_values, rankings, str(output_path_latest))
+    
+    print(f"\nDone!")
+    print(f"  Timestamped: {output_path_timestamped}")
+    print(f"  Latest: {output_path_latest}")
 
 
 if __name__ == "__main__":

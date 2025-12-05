@@ -2,10 +2,10 @@
 Data Preparation Script for DivArist Backtest
 
 This script:
-1. Downloads stock and currency data from Yahoo Finance
-2. Calculates USD wealth series (total return with reinvested dividends)
-3. Calculates trailing returns for each lookback period
-4. Saves everything to Excel for use in backtesting
+1. Loads cached data from Data_5Dec25.xlsx (or downloads fresh if not available)
+2. Calculates trailing returns for each lookback period
+3. Creates stock rankings for momentum strategy
+4. Saves everything to backtest_data.xlsx for use in backtesting
 """
 
 import pandas as pd
@@ -13,11 +13,17 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 
-from config import LOOKBACK_WEEKS, DATA_START_DATE, DATA_END_DATE, get_config_summary
+from config import (
+    LOOKBACK_WEEKS, DATA_START_DATE, DATA_END_DATE, 
+    TICKER_SOURCE_FILE, MIN_DATA_WEEKS, get_config_summary,
+    CACHED_DATA_FILE
+)
+from save_data import load_cached_data, save_downloaded_data, check_cache_valid
 from data_pipeline_yf import (
-    TICKER_MAP, 
+    load_tickers_from_excel,
     download_all_data, 
     convert_to_usd, 
+    download_benchmark_data,
     get_ticker_currency
 )
 
@@ -57,50 +63,65 @@ def calculate_lookback_returns(df_wealth: pd.DataFrame, lookback_weeks: list) ->
     return lookback_returns
 
 
-def prepare_backtest_data(output_path: str = "backtest_data.xlsx"):
+def prepare_backtest_data(output_path: str = "backtest_data.xlsx", use_cache: bool = True):
     """
     Main function to prepare all data for backtesting.
     
-    Downloads data, calculates returns, and saves to Excel.
+    Loads data from cache (Data_5Dec25.xlsx) or downloads fresh if not available.
+    Calculates returns and rankings, saves to backtest_data.xlsx.
+    
+    Parameters:
+        output_path: Output Excel file for backtest data
+        use_cache: If True, load from cached file; if False, force fresh download
     """
     print(get_config_summary())
     print()
     
-    # Determine end date
-    end_date = DATA_END_DATE or datetime.now().strftime('%Y-%m-%d')
+    script_dir = Path(__file__).parent
     
-    # Download all data
-    print("STEP 1: Downloading data from Yahoo Finance...")
-    print("="*60)
-    df_wealth_local, df_currencies = download_all_data(DATA_START_DATE, end_date)
+    # Try to load from cache first
+    if use_cache and check_cache_valid(CACHED_DATA_FILE):
+        print(f"STEP 1: Loading cached data from {CACHED_DATA_FILE}...")
+        print("="*60)
+        
+        cached_data = load_cached_data(CACHED_DATA_FILE)
+        
+        if cached_data is not None:
+            df_wealth_normalized = cached_data['wealth_usd']
+            df_currencies = cached_data['currencies']
+            print(f"\n✓ Loaded {df_wealth_normalized.shape[1]} stocks, {df_wealth_normalized.shape[0]} weeks from cache")
+        else:
+            print("Cache load failed, will download fresh...")
+            use_cache = False
+    else:
+        use_cache = False
     
-    if df_wealth_local.empty:
-        print("ERROR: No data downloaded. Exiting.")
-        return None
+    # If no cache or cache invalid, download fresh
+    if not use_cache:
+        print(f"STEP 1: Downloading fresh data (no valid cache)...")
+        print("="*60)
+        
+        # Save fresh download to cache
+        result = save_downloaded_data(CACHED_DATA_FILE)
+        
+        if result is None:
+            print("ERROR: Data download failed. Exiting.")
+            return None
+        
+        df_wealth_normalized = result['wealth_usd']
+        df_currencies = result['currencies']
+        print(f"\n✓ Downloaded and cached {df_wealth_normalized.shape[1]} stocks, {df_wealth_normalized.shape[0]} weeks")
     
-    print(f"\nDownloaded {df_wealth_local.shape[1]} stocks, {df_wealth_local.shape[0]} weeks")
-    
-    # Convert to USD
-    print("\nSTEP 2: Converting to USD...")
-    print("="*60)
-    df_wealth_usd = convert_to_usd(df_wealth_local, df_currencies)
-    print(f"USD wealth data shape: {df_wealth_usd.shape}")
-    
-    # Normalize to 100 at start
-    print("\nSTEP 3: Normalizing to 100 at start date...")
-    print("="*60)
-    first_values = df_wealth_usd.iloc[0]
-    df_wealth_normalized = (df_wealth_usd / first_values) * 100
-    print(f"Normalized wealth data shape: {df_wealth_normalized.shape}")
+    print(f"\nData loaded: {df_wealth_normalized.shape[1]} stocks x {df_wealth_normalized.shape[0]} weeks")
     
     # Calculate weekly returns
-    print("\nSTEP 4: Calculating weekly returns...")
+    print("\nSTEP 2: Calculating weekly returns...")
     print("="*60)
     df_weekly_returns = calculate_weekly_returns(df_wealth_normalized)
     print(f"Weekly returns shape: {df_weekly_returns.shape}")
     
     # Calculate lookback returns for each period
-    print("\nSTEP 5: Calculating lookback returns...")
+    print("\nSTEP 3: Calculating lookback returns...")
     print("="*60)
     lookback_returns = calculate_lookback_returns(df_wealth_normalized, LOOKBACK_WEEKS)
     
@@ -109,7 +130,7 @@ def prepare_backtest_data(output_path: str = "backtest_data.xlsx"):
         print(f"  {weeks:>2}w lookback: {valid_rows} valid weeks (starts at week {weeks + 1})")
     
     # Create rankings for each lookback period
-    print("\nSTEP 6: Creating stock rankings...")
+    print("\nSTEP 4: Creating stock rankings...")
     print("="*60)
     lookback_rankings = {}
     
@@ -121,7 +142,7 @@ def prepare_backtest_data(output_path: str = "backtest_data.xlsx"):
         print(f"  {weeks:>2}w rankings computed")
     
     # Save to Excel
-    print(f"\nSTEP 7: Saving to Excel: {output_path}")
+    print(f"\nSTEP 5: Saving to Excel: {output_path}")
     print("="*60)
     
     script_dir = Path(__file__).parent
@@ -153,10 +174,14 @@ def prepare_backtest_data(output_path: str = "backtest_data.xlsx"):
             print(f"  Saved: {sheet_name}")
         
         # Save metadata
+        # Get actual date range from data
+        actual_start = df_wealth_normalized.index[0]
+        actual_end = df_wealth_normalized.index[-1]
+        
         metadata = pd.DataFrame({
             'Parameter': ['Start Date', 'End Date', 'Num Stocks', 'Num Weeks', 
                          'Lookback Periods', 'Min Week for Backtest'],
-            'Value': [DATA_START_DATE, end_date, df_wealth_normalized.shape[1], 
+            'Value': [str(actual_start), str(actual_end), df_wealth_normalized.shape[1], 
                      df_wealth_normalized.shape[0], str(LOOKBACK_WEEKS),
                      max(LOOKBACK_WEEKS) + 1]
         })

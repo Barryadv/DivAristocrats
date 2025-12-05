@@ -1,4 +1,4 @@
-# DivArist: Emerging Market Dividend Aristocrats Momentum Strategy
+# DivArist: Emerging Market Dividend Aristocrats Strategy
 
 ## User Manual & Technical Documentation
 
@@ -9,30 +9,35 @@
 1. [Program Goal](#1-program-goal)
 2. [Quick Start & How to Use](#2-quick-start--how-to-use)
 3. [Investment Universe & Stock Selection](#3-investment-universe--stock-selection)
-4. [Benchmark Selection](#4-benchmark-selection)
-5. [Data Pipeline](#5-data-pipeline)
-6. [Avoiding Look-Ahead Bias](#6-avoiding-look-ahead-bias)
-7. [Backtest Scenarios](#7-backtest-scenarios)
-8. [Optimal Strategy & Out-of-Sample Test](#8-optimal-strategy--out-of-sample-test)
-9. [Portfolio Simulation with Trading Costs](#9-portfolio-simulation-with-trading-costs)
-10. [Performance Comparison](#10-performance-comparison)
-11. [File Structure](#11-file-structure)
+4. [Strategy Comparison: Three Approaches](#4-strategy-comparison-three-approaches)
+5. [Benchmark Selection](#5-benchmark-selection)
+6. [Data Pipeline](#6-data-pipeline)
+7. [Avoiding Look-Ahead Bias](#7-avoiding-look-ahead-bias)
+8. [Backtest Scenarios](#8-backtest-scenarios)
+9. [Optimal Strategy & Out-of-Sample Test](#9-optimal-strategy--out-of-sample-test)
+10. [Portfolio Simulation with Trading Costs](#10-portfolio-simulation-with-trading-costs)
+11. [Performance Comparison](#11-performance-comparison)
+12. [Key Findings](#12-key-findings)
+13. [File Structure](#13-file-structure)
+14. [Known Limitations](#14-known-limitations)
 
 ---
 
 ## 1. Program Goal
 
-**DivArist** is a quantitative investment strategy that combines:
+**DivArist** is a quantitative investment research platform that evaluates different approaches to investing in emerging market dividend aristocrats:
 
-- **Quality Screening**: Selecting fundamentally strong dividend-paying companies in emerging markets
-- **Momentum Filtering**: Using trailing returns to exclude underperformers and concentrate on winners
+### Three Strategies Compared
 
-### Objective
+| Strategy | Description | Trading Costs |
+|----------|-------------|---------------|
+| **EW Div Aristocrats** | Equal-weight buy & hold of all 124 dividend aristocrats | Initial only (25bp) |
+| **Momentum Strategy** | Weekly rebalanced, exclude bottom 80% by momentum | Weekly (25bp × turnover) |
+| **EEM Benchmark** | iShares MSCI Emerging Markets ETF | Initial only (25bp) |
 
-Generate superior risk-adjusted returns by:
-1. Starting with a curated universe of high-quality emerging market dividend aristocrats
-2. Applying a momentum-based exclusion filter to avoid laggards
-3. Rebalancing weekly to capture momentum while maintaining diversification
+### Research Question
+
+> *Does a momentum-based exclusion strategy add value over a simple equal-weight buy & hold approach, after accounting for trading costs?*
 
 ### Key Hypothesis
 
@@ -44,7 +49,7 @@ Companies that have demonstrated strong dividend track records AND recent price 
 
 ### 📊 View Results (No Code Required)
 
-The two main outputs are **interactive HTML dashboards** that can be opened in any web browser:
+The main outputs are **interactive HTML dashboards** that can be opened in any web browser:
 
 | Dashboard | File | Description |
 |-----------|------|-------------|
@@ -52,10 +57,12 @@ The two main outputs are **interactive HTML dashboards** that can be opened in a
 | **🧪 Test Dashboard** | `dashboard_test.html` | Out-of-sample validation on 2025 data |
 
 Simply open these HTML files in Chrome, Edge, or Firefox to view:
-- Performance charts with alpha shading
-- Monthly return heatmaps
-- Current holdings with P/E, dividend yield, sector
-- Trade log history
+- Performance charts with alpha shading (EW vs EEM, Momentum vs EEM, Momentum vs EW)
+- Monthly return and alpha heatmaps
+- Return & alpha distribution histograms
+- Current holdings (24 stocks for momentum strategy)
+- Portfolio exposure by country and sector
+- Trade log (last 4 weeks)
 
 ### 🔧 Run the Full Pipeline
 
@@ -65,114 +72,160 @@ Simply open these HTML files in Chrome, Edge, or Firefox to view:
 pip install pandas numpy matplotlib yfinance openpyxl scipy
 ```
 
-#### Step 1: Download & Prepare Data
+#### Step 1: Download & Cache Data
+
+```bash
+python save_data.py
+```
+Downloads price, dividend, and currency data from Yahoo Finance. Saves to `Data_5Dec25.xlsx` cache file. Takes ~5-10 minutes for 124 stocks.
+
+#### Step 2: Prepare Backtest Data
 
 ```bash
 python data_preparation.py
 ```
-Downloads price, dividend, and currency data from Yahoo Finance. Saves to `backtest_data.xlsx`. Takes ~3-5 minutes.
+Loads from cache, calculates lookback returns and rankings. Saves to `backtest_data.xlsx`.
 
-#### Step 2: Run Backtest (40 Scenarios)
+#### Step 3: Run Backtest (40 Scenarios)
 
 ```bash
 python backtest.py
 ```
-Tests all lookback/exclusion combinations. Generates `backtest_results.xlsx` and heatmap.
+Tests all lookback/exclusion combinations. Outputs to `ScenarioGrid/` folder.
 
-#### Step 3: Run Portfolio Simulation
+#### Step 4: Run Portfolio Simulation
 
 ```bash
 python portfolio_simulation.py
 ```
-Simulates both **Training** (2017-2024) and **Test** (2025) periods with:
-- 30bp trading costs
-- Dividend reinvestment
-- EEM benchmark comparison
+Simulates **Training** (2017-2024) and **Test** (2025) periods with:
+- 25bp trading costs
+- Three strategies compared: EEM, EW Div Aristocrats, Momentum
 
-Outputs: `portfolio_simulation_results.xlsx`, charts for both periods.
+Outputs to `SimulationTest/` folder.
 
-#### Step 4: Generate Dashboards
+#### Step 5: Generate Dashboards
 
 ```bash
 python dashboard.py       # Training period dashboard
 python dashboard_test.py  # Test period dashboard (out-of-sample)
 ```
+Outputs to `Dashboards/` folder with timestamped versions.
 
-### 📁 Key Output Files
+### 📁 Output Folders
 
-| File | Description |
-|------|-------------|
-| `dashboard.html` | **Training period dashboard** (2017-2024) |
-| `dashboard_test.html` | **Test period dashboard** (2025 out-of-sample) |
-| `portfolio_simulation_results.xlsx` | Train & Test results with multiple sheets |
-| `backtest_results.xlsx` | All 40 scenario results |
-| `backtest_heatmap.png` | 10×4 strategy performance heatmap |
+| Folder | Contents |
+|--------|----------|
+| `ScenarioGrid/` | Backtest results (40 scenarios), heatmaps |
+| `SimulationTest/` | Portfolio simulation results, Train/Test charts |
+| `Dashboards/` | Timestamped HTML dashboards |
 
 ---
 
 ## 3. Investment Universe & Stock Selection
 
-### Screening Criteria
+### Screening Criteria (December 2025)
 
-The initial stock universe is selected using the following **Bloomberg screening criteria**:
-
-#### Quality & Size Filters
+The stock universe is selected using the following **Bloomberg screening criteria**:
 
 | Criterion | Threshold | Rationale |
 |-----------|-----------|-----------|
+| **Geography** | Emerging Markets (MSCI) | Focus on higher-growth economies |
 | **Market Cap** | > $1 Billion USD | Ensures liquidity and institutional investability |
-| **Geography** | Emerging Markets | Focus on higher-growth economies with dividend culture |
-| **Price-to-Book** | > 0.8x | Avoids deep value traps and distressed companies |
-| **Net Debt / EBITDA** | < 2.0x | Balance sheet strength; manageable leverage |
-
-#### Dividend Quality Filters
-
-| Criterion | Threshold | Rationale |
-|-----------|-----------|-----------|
-| **12M Forward Dividend Yield** | > 3% (Best Estimate) | Meaningful income generation |
-| **Dividend 3-Year Net Growth** | > 4% | Consistent dividend growth track record |
-| **FCF Coverage** | FCF > 1.5× Dividends Paid | Sustainable dividend; not funded by debt |
-
-#### Earnings Quality Filters
-
-| Criterion | Threshold | Rationale |
-|-----------|-----------|-----------|
-| **2Y Forward Net Income** | > Current Year Net Income | Forward earnings growth expected |
-| **5Y Net Income CAGR** | > 2% (Geometric Growth) | Proven historical earnings growth |
-
-#### Price & Volatility Filters *(Under Review)*
-
-| Criterion | Threshold | Rationale |
-|-----------|-----------|-----------|
-| **30-Day Annualized Volatility** | < 35% | ⚠️ *Review: May exclude recovery plays* |
-| **Price Momentum** | P > P (1 Year Ago) | ⚠️ *Review: Duplicates strategy momentum filter* |
-
-> **📋 Note:** The Price and Volatility criteria are flagged for review. The volatility filter may exclude stocks recovering from temporary dislocations, while the price momentum filter may be redundant with the strategy's lookback-based momentum ranking.
+| **Dividend Yield** | > 5% (12M forward) | High income generation |
+| **Dividend Growth** | > 5% (3-year net growth) | Consistent dividend growth track record |
+| **Price History** | Back to January 2017 | Sufficient data for backtesting |
 
 ### Resulting Universe
 
-This screening process yields **43 stocks** across 11 countries/currencies:
+This screening process yields **124 stocks** across multiple emerging market countries:
 
-| Region | Stocks | Currency |
-|--------|--------|----------|
-| China | 12 | CNY |
-| Hong Kong | 9 | HKD |
-| Mexico | 7 | MXN |
-| Brazil | 5 | BRL |
-| Indonesia | 3 | IDR |
-| South Korea | 3 | KRW |
-| UAE | 1 | AED |
-| Thailand | 1 | THB |
-| Malaysia | 1 | MYR |
-| Saudi Arabia | 1 | SAR |
+| Region | Stocks | Currency | Examples |
+|--------|--------|----------|----------|
+| **China** | 35+ | CNY | 000333 CH, 600050 CH |
+| **Hong Kong** | 25+ | HKD | 388 HK, 941 HK, 2313 HK |
+| **Brazil** | 15+ | BRL | ABEV3 BZ, BBDC4 BZ |
+| **Mexico** | 10+ | MXN | WALMEX* MM, GFNORTEO MM |
+| **Taiwan** | 10+ | TWD | 2451 TT |
+| **South Korea** | 5+ | KRW | 021240 KS |
+| **Indonesia** | 5+ | IDR | ASII IJ, UNTR IJ |
+| **South Africa** | 5+ | ZAR | ABG SJ |
+| **Turkey** | 3+ | TRY | EKGYO TI |
+| **Thailand** | 3+ | THB | ADVANC TB |
+| **Other EM** | 10+ | Various | Poland, Romania, UAE, Pakistan |
+
+**Total: 124 stocks across 18 currencies**
+
+### Data Source
+
+Stock universe loaded from: `DivScreen_5Dec25.xlsx`
 
 ---
 
-## 4. Benchmark Selection
+## 4. Strategy Comparison: Three Approaches
+
+### Strategy 1: EW Div Aristocrats (Buy & Hold)
+
+**Equal-Weight Buy & Hold** of all 124 dividend aristocrats.
+
+| Attribute | Value |
+|-----------|-------|
+| **Holdings** | All 124 stocks |
+| **Weighting** | Equal weight (~0.8% each) |
+| **Rebalancing** | None (true buy & hold) |
+| **Trading Costs** | Initial purchase only (25bp) |
+| **Turnover** | 0% weekly |
+
+**Advantages:**
+- Minimal trading costs
+- Maximum diversification
+- No model risk / parameter sensitivity
+- Captures broad EM dividend exposure
+
+**Disadvantages:**
+- Holds underperformers
+- No momentum alpha capture
+
+### Strategy 2: Momentum Strategy (28w/80%)
+
+**Weekly rebalanced strategy** that excludes the bottom 80% of stocks by 28-week momentum.
+
+| Attribute | Value |
+|-----------|-------|
+| **Holdings** | Top 24 stocks (top 20%) |
+| **Weighting** | Equal weight (~4.2% each) |
+| **Rebalancing** | Weekly |
+| **Lookback Period** | 28 weeks |
+| **Exclusion Ratio** | 80% |
+| **Trading Costs** | 25bp per trade |
+| **Turnover** | ~15.6% weekly |
+
+**Advantages:**
+- Concentrates in momentum winners
+- Excludes laggards
+- Systematic, rules-based
+
+**Disadvantages:**
+- High trading costs from turnover
+- Concentrated (24 stocks)
+- Parameter sensitivity
+
+### Strategy 3: EEM Benchmark
+
+**iShares MSCI Emerging Markets ETF** - passive EM exposure.
+
+| Attribute | Value |
+|-----------|-------|
+| **Holdings** | ~1,400 stocks |
+| **Weighting** | Market cap weighted |
+| **Expense Ratio** | 0.72% |
+| **Trading Costs** | Initial purchase only (25bp) |
+
+---
+
+## 5. Benchmark Selection
 
 ### EEM - iShares MSCI Emerging Markets ETF
-
-The strategy is benchmarked against **EEM US** (iShares MSCI Emerging Markets ETF), a widely-used institutional benchmark for emerging market equity exposure.
 
 | Attribute | Value |
 |-----------|-------|
@@ -184,88 +237,91 @@ The strategy is benchmarked against **EEM US** (iShares MSCI Emerging Markets ET
 
 ### Why EEM?
 
-1. **Institutional Standard**: EEM is one of the most liquid and widely-held emerging market ETFs, commonly used by institutions as a benchmark for EM equity strategies.
-
-2. **MSCI Benchmark Alignment**: Tracks the MSCI Emerging Markets Index, the industry-standard benchmark for EM equities covering ~1,400 stocks across 24 countries.
-
-3. **Low Cost**: At 0.72% TER, it represents a realistic alternative that investors could actually hold, making alpha comparisons meaningful.
-
-4. **Total Return**: Our comparison uses total return (dividends reinvested), providing a fair apples-to-apples comparison with our dividend-focused strategy.
-
-5. **Geographic Overlap**: EEM covers the same emerging market regions as our DivArist universe, making it an appropriate benchmark for relative performance measurement.
-
-> **Note**: While there are lower-cost EM ETFs available today (e.g., VWO at 0.08%), EEM remains the institutional standard and was available throughout our entire backtest period (2017-2025).
+1. **Institutional Standard**: Most liquid and widely-held EM ETF
+2. **MSCI Benchmark Alignment**: Industry-standard benchmark for EM equities
+3. **Geographic Overlap**: Covers same emerging market regions
+4. **Total Return**: Dividends reinvested for fair comparison
+5. **Available Throughout Backtest**: 2017-2025 data available
 
 ---
 
-## 5. Data Pipeline
+## 6. Data Pipeline
 
-### Overview
-
-The data pipeline downloads, processes, and prepares all data needed for backtesting:
+### Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Yahoo Finance  │────>│  Data Pipeline  │────>│  backtest_data  │
-│  (Price + Divs) │     │  (Python)       │     │  (.xlsx)        │
+│  Yahoo Finance  │────>│   save_data.py  │────>│ Data_5Dec25.xlsx│
+│  (Price + Divs) │     │   (Cache Layer) │     │   (Cache File)  │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-                               │
-                               ▼
-                        ┌─────────────────┐
-                        │  Currency Data  │
-                        │  (USD Conversion)│
-                        └─────────────────┘
+                                                        │
+                                                        ▼
+                                                ┌─────────────────┐
+                                                │data_preparation │
+                                                │     .py         │
+                                                └─────────────────┘
+                                                        │
+                                                        ▼
+                                                ┌─────────────────┐
+                                                │backtest_data    │
+                                                │    .xlsx        │
+                                                └─────────────────┘
 ```
 
 ### Configuration (`config.py`)
 
 ```python
+# Data source
+TICKER_SOURCE_FILE = "DivScreen_5Dec25.xlsx"
+CACHED_DATA_FILE = "Data_5Dec25.xlsx"
+
 # Data download period (full history)
-DATA_START_DATE = "2017-01-01"
-DATA_END_DATE = "2025-11-28"
+DATA_START_DATE = "2016-12-01"
+DATA_END_DATE = "2025-12-05"
 
 # Training period (in-sample)
-TRAIN_START_DATE = "2017-01-01"
+TRAIN_START_DATE = "2016-12-21"
 TRAIN_END_DATE = "2024-12-21"
 
-# Test period (out-of-sample)
+# Test period (out-of-sample) 
 TEST_START_DATE = "2025-01-01"
-TEST_END_DATE = "2025-11-28"
+TEST_END_DATE = "2025-12-05"
 
 # Optimal strategy parameters
-OPTIMAL_LOOKBACK = 8   # weeks
-OPTIMAL_EXCLUSION = 0.40  # 40% exclusion → hold 26 stocks
+OPTIMAL_LOOKBACK = 28   # weeks
+OPTIMAL_EXCLUSION = 0.80  # 80% exclusion → hold 24 stocks (top 20%)
+
+# Trading cost
+TRADING_COST_BP = 25  # 25 basis points (0.25%)
+```
+
+### Data Caching
+
+The `save_data.py` module provides data caching to avoid repeated Yahoo Finance downloads:
+
+```python
+# Downloads and caches all data
+python save_data.py
+
+# Subsequent runs load from cache
+python data_preparation.py  # Uses Data_5Dec25.xlsx
 ```
 
 ### Data Cleaning
 
 The pipeline includes automatic data cleaning for:
 
-1. **Currency Anomalies**: Yahoo Finance occasionally returns erroneous FX rates (e.g., IDR jumping from 15,000 to 1.3). Median-based outlier detection identifies and corrects these.
+1. **Currency Anomalies**: Yahoo Finance occasionally returns erroneous FX rates. Median-based outlier detection identifies and corrects these.
 
 2. **Wealth Anomalies**: Weekly returns >50% are flagged as data errors and forward-filled.
 
-```python
-# Currency cleaning (median-based)
-def clean_currency_data(df):
-    rolling_median = series.rolling(window=26).median()
-    anomaly_mask = (ratio < 0.5) | (ratio > 2.0)
-    df_clean.loc[anomaly_mask, col] = rolling_median
-
-# Wealth cleaning (return-based)
-def clean_wealth_data(df):
-    anomaly_mask = (returns > 0.50) | (returns < -0.50)
-    df_clean.loc[anomaly_mask, col] = np.nan
-    df_clean = df_clean.ffill().bfill()
-```
-
 ---
 
-## 6. Avoiding Look-Ahead Bias
+## 7. Avoiding Look-Ahead Bias
 
 ### The Problem
 
-Look-ahead bias occurs when a backtest uses information that would not have been available at the time of the trading decision. This artificially inflates performance.
+Look-ahead bias occurs when a backtest uses information that would not have been available at the time of the trading decision.
 
 ### Our Solution: T+1 Execution
 
@@ -292,15 +348,15 @@ Timeline:
 
 1. **Signal Date ≠ Trade Date**: We observe at Week T, trade at Week T+1
 2. **No Future Information**: Rankings only use data through Week T
-3. **Realistic Execution**: Assumes trades execute at Week T+1 open/close
+3. **Realistic Execution**: Assumes trades execute at Week T+1 close
 
 ---
 
-## 7. Backtest Scenarios
+## 8. Backtest Scenarios
 
 ### Parameter Grid
 
-The strategy is tested across **40 scenarios**:
+The momentum strategy is tested across **40 scenarios**:
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
@@ -310,196 +366,333 @@ The strategy is tested across **40 scenarios**:
 ### Exclusion Logic
 
 ```python
-n_stocks = 43  # Total stocks in universe
+n_stocks = 124  # Total stocks in universe
 n_exclude = int(n_stocks × exclusion_ratio)
 n_hold = n_stocks - n_exclude
 
 # Examples:
-# 20% exclusion → Hold 34 stocks (top 80%)
-# 40% exclusion → Hold 26 stocks (top 60%)  ← OPTIMAL
-# 60% exclusion → Hold 17 stocks (top 40%)
-# 80% exclusion → Hold 9 stocks (top 20%)
+# 20% exclusion → Hold 99 stocks (top 80%)
+# 40% exclusion → Hold 74 stocks (top 60%)
+# 60% exclusion → Hold 49 stocks (top 40%)
+# 80% exclusion → Hold 24 stocks (top 20%)  ← SELECTED
 ```
 
-### Results Heatmap (CAGR %)
+### Ranking Logic
 
-| Lookback | 20% Excl | 40% Excl | 60% Excl | 80% Excl |
-|----------|----------|----------|----------|----------|
-| 2w | 7.7% | 6.5% | 6.0% | 6.8% |
-| 4w | 8.3% | 6.4% | 5.9% | 4.7% |
-| **8w** | 8.9% | **8.7%** | 9.1% | 9.6% |
-| 12w | 8.3% | 8.9% | 8.0% | 6.9% |
-| 16w | 8.3% | 8.1% | 6.8% | 7.8% |
-| 20w | 8.6% | 7.3% | 6.8% | 4.5% |
-| 24w | 8.5% | 7.9% | 6.8% | 5.1% |
-| 28w | 8.5% | 6.9% | 5.4% | 5.5% |
-| 32w | 7.9% | 7.4% | 4.7% | 0.1% |
-| 36w | 7.5% | 6.7% | 4.2% | 2.5% |
+```python
+# Higher lookback returns get lower (better) ranks
+rankings = df_returns.rank(axis=1, ascending=False, method='min')
+
+# Rank 1 = best performer (highest return)
+# Rank 124 = worst performer (lowest return)
+
+# Select top performers (lowest rank numbers)
+selected_stocks = valid_rankings.nsmallest(n_hold).index.tolist()
+```
 
 ---
 
-## 8. Optimal Strategy & Out-of-Sample Test
+## 9. Optimal Strategy & Out-of-Sample Test
 
-### Optimal: 8-Week Lookback, 40% Exclusion
-
-Based on comprehensive backtesting, the optimal parameters are:
+### Optimal Parameters: 28-Week Lookback, 80% Exclusion
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| **Lookback** | 8 weeks | ~2 months captures momentum without noise |
-| **Exclusion** | 40% | Holds 26 stocks - balanced concentration |
-| **Holdings** | 26 stocks | Top 60% of universe |
+| **Lookback** | 28 weeks | ~7 months captures intermediate momentum |
+| **Exclusion** | 80% | Concentrated in top 20% |
+| **Holdings** | 24 stocks | Top momentum performers |
 
-> **⚠️ Why 40% Exclusion Instead of 60% or 80%?**
->
-> Looking at the heatmap above, one might ask why we chose **8w/40%** (8.7% CAGR) when **8w/60%** (9.1%) and **8w/80%** (9.6%) show higher returns. The answer is **parameter robustness**.
->
-> The 40% exclusion strategy demonstrates **consistent performance across adjacent parameters**:
-> - Performs well at **20% exclusion** (8.9%) and **60% exclusion** (9.1%)
-> - Performs well at **12-week** (8.9%) and **16-week** (8.1%) lookbacks
->
-> In contrast, higher exclusion ratios show **unstable performance**:
-> - 60% exclusion: Works at 8w (9.1%) but collapses at 32w (4.7%) and 36w (4.2%)
-> - 80% exclusion: Extreme variance from 9.6% (8w) to 0.1% (32w) and negative returns
->
-> **Principle**: A robust strategy should perform well not just at the optimal point, but also in neighboring parameter combinations. This reduces the risk of overfitting to historical data and improves the likelihood of out-of-sample success.
+### Performance Summary (After Trading Costs)
 
-### Train vs Test Performance
-
-The strategy was trained on 2017-2024 data and validated on 2025 (out-of-sample):
-
-| Period | Metric | DivArist 8w/40% | EEM Benchmark | Alpha |
-|--------|--------|-----------------|---------------|-------|
-| **Training** | Total Return | +115.0% | +40.8% | +74.2% |
-| (2017-2024) | CAGR | 5.12% | 4.37% | +0.75% |
-| | Sharpe | 0.01 | -0.03 | +0.04 |
-| **Test (OOS)** | Total Return | +35.8% | +29.5% | **+6.3%** |
-| (2025) | CAGR | 41.5% | 34.0% | +7.5% |
-| | Sharpe | 3.02 | 1.47 | **+1.55** |
-
-### Key Finding
-
-✅ **The strategy generalizes well to out-of-sample data**, with +6.3% alpha in 2025 and a significantly higher Sharpe ratio (3.02 vs 1.47).
+| Period | Strategy | Total Return | CAGR | Volatility | Sharpe |
+|--------|----------|--------------|------|------------|--------|
+| **Training** | EEM Buy & Hold | +73.2% | 7.1% | 18.8% | 0.11 |
+| (2017-2024) | EW Div Aristocrats | **+343.8%** | **20.4%** | 15.9% | **0.97** |
+| | Momentum 28w/80% | +242.9% | 18.3% | 18.3% | 0.72 |
+| **Test (OOS)** | EEM Buy & Hold | +34.8% | 38.2% | 17.4% | 1.91 |
+| (2025) | EW Div Aristocrats | **+44.5%** | **49.0%** | 11.3% | **3.90** |
+| | Momentum 28w/80% | +28.0% | 30.7% | 12.2% | 2.11 |
 
 ---
 
-## 9. Portfolio Simulation with Trading Costs
+## 10. Portfolio Simulation with Trading Costs
 
 ### Trading Cost Assumptions
 
 | Cost Type | Rate | Application |
 |-----------|------|-------------|
-| **Transaction Cost** | 30bp (0.30%) | Applied to all buys and sells |
-| **Dividend Reinvestment** | 30bp | Cost to reinvest dividends |
-| **Rebalancing** | 30bp per side | Weekly portfolio adjustments |
+| **Transaction Cost** | 25bp (0.25%) | Applied to all buys and sells |
+| **Initial Investment** | 25bp | Cost to establish position |
 
-### Portfolio Turnover Analysis
-
-Actual measured turnover for 8w/40% strategy:
+### Turnover Analysis (28w/80% Strategy)
 
 | Metric | Value |
 |--------|-------|
-| Average Weekly Turnover | ~10% |
-| Stocks Changed per Week | 2-3 stocks |
-| Zero Turnover Weeks | ~7% |
-| Annual Cost Drag | ~3-4% |
+| **Average Weekly Turnover** | 15.6% |
+| **Weekly Cost Rate** | 0.078% (2 × 25bp × 15.6%) |
+| **Annual Cost Drag** | ~4% |
 
-### Simulation Results (After Costs)
+### Simulation Results
 
-| Period | DivArist 8w/40% | EEM Buy & Hold |
-|--------|-----------------|----------------|
-| **Training (2017-2024)** | | |
-| Initial Capital | $10,000 | $10,000 |
-| Final Value | $21,434 | $14,226 |
-| Total Return | +114.3% | +42.3% |
-| Trading Costs | $5,484 | $37 |
-| **Test (2025)** | | |
-| Initial Capital | $10,000 | $10,000 |
-| Final Value | $12,936 | $13,073 |
-| Total Return | +29.4% | +30.7% |
-| Trading Costs | $550 | $30 |
+**Training Period (2017-2024)**
 
----
+| Strategy | Initial | Final Value | Return | Costs |
+|----------|---------|-------------|--------|-------|
+| EEM Buy & Hold | $10,000 | $17,277 | +72.8% | $25 |
+| EW Div Aristocrats | $10,000 | $44,266 | +342.7% | $25 |
+| Momentum 28w/80% | $10,000 | $34,200 | +242.0% | $5,981 |
 
-## 10. Performance Comparison
+**Test Period (2025)**
 
-### Strategy Comparison Table
-
-| Metric | DivArist 8w/40% | EEM ETF |
-|--------|-----------------|---------|
-| **CAGR (Training)** | 5.12% | 4.37% |
-| **CAGR (Test)** | 41.5% | 34.0% |
-| **Volatility** | 10.6% | 19.4% |
-| **Sharpe (Test)** | **3.02** | 1.47 |
-| **Max Drawdown** | -30.7% | -39.6% |
-| **Win Rate** | 57.8% | 52.3% |
-
-### Key Findings
-
-#### 1. Lower Volatility
-- **10.6% volatility** vs EEM's 19.4% (45% less volatile)
-
-#### 2. Superior Risk-Adjusted Returns (Test Period)
-- **Sharpe 3.02** vs EEM's 1.47 (2x better)
-
-#### 3. Drawdown Protection
-- **-30.7% max drawdown** vs EEM's -39.6%
-
-#### 4. Out-of-Sample Validation
-- Strategy continues to outperform in 2025 unseen data
+| Strategy | Initial | Final Value | Return | Costs |
+|----------|---------|-------------|--------|-------|
+| EEM Buy & Hold | $10,000 | $13,448 | +34.5% | $25 |
+| EW Div Aristocrats | $10,000 | $14,418 | +44.2% | $25 |
+| Momentum 28w/80% | $10,000 | $12,768 | +27.7% | $436 |
 
 ---
 
-## 11. File Structure
+## 11. Performance Comparison
+
+### Three-Way Comparison (Training Period 2017-2024)
+
+| Metric | EEM | EW Div Aristocrats | Momentum 28w/80% |
+|--------|-----|-------------------|------------------|
+| **CAGR** | 7.1% | **20.4%** | 18.3% |
+| **Volatility** | 18.8% | **15.9%** | 18.3% |
+| **Sharpe Ratio** | 0.11 | **0.97** | 0.72 |
+| **Trading Costs** | $25 | $25 | $5,981 |
+
+### Three-Way Comparison (Test Period 2025)
+
+| Metric | EEM | EW Div Aristocrats | Momentum 28w/80% |
+|--------|-----|-------------------|------------------|
+| **CAGR** | 38.2% | **49.0%** | 30.7% |
+| **Volatility** | 17.4% | **11.3%** | 12.2% |
+| **Sharpe Ratio** | 1.91 | **3.90** | 2.11 |
+| **Trading Costs** | $25 | $25 | $436 |
+
+---
+
+## 12. Key Findings
+
+### 🏆 Winner: Equal-Weight Buy & Hold
+
+**The simple equal-weight buy & hold strategy outperforms the momentum strategy after trading costs.**
+
+| Finding | Implication |
+|---------|-------------|
+| **EW beats Momentum by +2.1% CAGR (Training)** | Trading costs erode momentum alpha |
+| **EW beats Momentum by +18.3% CAGR (Test)** | Result robust out-of-sample |
+| **EW has lower volatility** | Diversification benefit from holding all 124 stocks |
+| **EW has higher Sharpe** | Better risk-adjusted returns |
+
+### Why Does EW Win?
+
+1. **Trading Costs Matter**: The momentum strategy's 15.6% weekly turnover generates ~4% annual cost drag. This exceeds the gross alpha generated by momentum filtering.
+
+2. **Diversification Premium**: Holding all 124 dividend aristocrats provides natural diversification that the 24-stock momentum portfolio cannot match.
+
+3. **No Parameter Risk**: The EW strategy has no lookback or exclusion parameters to overfit.
+
+### When Might Momentum Win?
+
+- Lower trading costs (< 10bp)
+- Lower turnover strategy (longer lookback, lower exclusion)
+- Markets with stronger momentum persistence
+
+---
+
+## 13. File Structure
 
 ```
 DivArist/
 │
-├── 📊 DASHBOARDS (View in Browser)
+├── 📊 DASHBOARDS
 │   ├── dashboard.html           # Training period (2017-2024)
-│   └── dashboard_test.html      # Test period (2025 out-of-sample)
+│   ├── dashboard_test.html      # Test period (2025 out-of-sample)
+│   └── Dashboards/              # Timestamped versions
 │
 ├── ⚙️ CONFIGURATION
-│   └── config.py                # All parameters (dates, lookback, exclusion)
+│   └── config.py                # All parameters (dates, lookback, costs)
 │
 ├── 📥 DATA PIPELINE
+│   ├── save_data.py             # Download & cache Yahoo Finance data
 │   ├── data_pipeline_yf.py      # Yahoo Finance download + cleaning
 │   └── data_preparation.py      # Process data + save to Excel
 │
 ├── 🧪 BACKTESTING
 │   ├── backtest.py              # Run 40 scenario grid search
-│   └── calculate_turnover.py    # Measure actual portfolio turnover
+│   ├── calculate_turnover.py    # Measure actual portfolio turnover
+│   ├── optimize_after_costs.py  # Post-cost optimization
+│   └── ScenarioGrid/            # Backtest outputs (timestamped)
 │
 ├── 💼 SIMULATION
-│   ├── portfolio_simulation.py  # Trade simulator with costs (Train + Test)
+│   ├── portfolio_simulation.py  # Trade simulator (EEM, EW, Momentum)
 │   ├── dashboard.py             # Generate training dashboard
-│   └── dashboard_test.py        # Generate test dashboard
-│
-├── 📈 ANALYSIS
-│   ├── compare_optimal.py       # Benchmark comparison
-│   └── trading_statistics.py    # Performance metrics
+│   ├── dashboard_test.py        # Generate test dashboard
+│   └── SimulationTest/          # Simulation outputs (timestamped)
 │
 ├── 📁 DATA FILES
-│   ├── backtest_data.xlsx       # Pre-calculated data (931 weeks)
+│   ├── DivScreen_5Dec25.xlsx    # Source ticker list (124 stocks)
+│   ├── Data_5Dec25.xlsx         # Cached wealth/currency data
+│   ├── backtest_data.xlsx       # Processed backtest data
 │   ├── backtest_results.xlsx    # 40 scenario results
-│   └── portfolio_simulation_results.xlsx  # Train/Test simulation results
-│
-├── 🖼️ CHARTS
-│   ├── backtest_heatmap.png     # 10×4 parameter sensitivity
-│   ├── simulation_train_chart.png
-│   └── simulation_test_chart.png
+│   └── portfolio_simulation_results.xlsx
 │
 └── 📖 README.md                 # This documentation
 ```
 
 ---
 
+## 14. Known Limitations
+
+### Survivorship Bias
+
+The current stock universe is based on a screen run in December 2025. Stocks that were delisted, merged, or dropped from EM indices between 2017-2025 are not included. This creates survivorship bias that inflates historical returns.
+
+**Impact**: Both EW and Momentum strategies benefit from this bias equally, so relative comparisons remain valid.
+
+**Proper Fix**: Use point-in-time constituent data (e.g., from MSCI or Bloomberg) to reconstruct the universe as it existed at each historical date.
+
+### Look-Ahead Bias in Universe Selection
+
+The screening criteria (div yield > 5%, 3yr dividend growth > 5%) are based on current data, not historical data at each rebalancing point.
+
+**Impact**: Stocks are selected because they ultimately became dividend aristocrats, not because they were identified as such in real-time.
+
+### Currency Risk
+
+All returns are converted to USD. Currency movements (especially EM currency depreciation) significantly impact returns but are not separately analyzed.
+
+### Limited History
+
+The backtest starts in January 2017, providing ~8 years of data. This may not capture all market regimes (e.g., rising rate environments, EM crises).
+
+---
+
+## Changelog (December 5, 2025)
+
+### Major Updates
+
+#### 1. New Stock Universe (124 Stocks)
+
+Expanded from 43 to **124 dividend aristocrats** from `DivScreen_5Dec25.xlsx`:
+
+| Region | Count | Key Markets |
+|--------|-------|-------------|
+| China | 35+ | Shanghai, Shenzhen exchanges |
+| Hong Kong | 25+ | HKEX listed |
+| Brazil | 15+ | B3 exchange |
+| Taiwan | 10+ | TWSE listed |
+| Mexico | 10+ | BMV listed |
+| Other EM | 30+ | Korea, Indonesia, South Africa, Turkey, Thailand, Poland, Romania, UAE, Pakistan |
+
+#### 2. Updated Screening Criteria
+
+| Criterion | Threshold | Description |
+|-----------|-----------|-------------|
+| **Geography** | MSCI Emerging Markets | Excludes developed markets |
+| **Market Cap** | > $1 Billion USD | Ensures liquidity |
+| **Dividend Yield** | > 5% (12M forward) | High income generation |
+| **Dividend Growth** | > 5% (3-year net growth) | Consistent dividend increases |
+| **Price History** | Back to January 2017 | Minimum 8 years for backtesting |
+
+#### 3. New Optimal Strategy: 28w/80%
+
+Changed from 8w/40% to **28w/80%** based on full grid search:
+- **Lookback**: 28 weeks (~7 months)
+- **Exclusion**: 80% (hold top 20% = 24 stocks)
+- **Weekly Turnover**: ~15.6%
+
+#### 4. Equal-Weight (EW) Strategy Fully Integrated
+
+The **EW Div Aristocrats Buy & Hold** is now a primary strategy, not just a benchmark:
+
+**Dashboard Integration:**
+- Section 1: EW vs EEM (performance, stats, monthly alpha heatmap, return distribution)
+- Section 2: Momentum vs EEM
+- Section 3: Momentum vs EW (head-to-head)
+- Summary box shows all three strategies with color-coded performance
+
+**Why EW Outperforms:**
+- Zero trading costs after initial investment (vs ~4% annual for momentum)
+- Maximum diversification (124 stocks vs 24)
+- No parameter sensitivity or overfitting risk
+- Captures full EM dividend aristocrat universe
+
+#### 5. Trading Costs Updated
+
+| Change | Old | New |
+|--------|-----|-----|
+| Transaction Cost | 30bp | **25bp** |
+| Rationale | Conservative | More realistic for EM equities |
+
+#### 6. Data Architecture Overhaul
+
+**New Caching System:**
+```
+Yahoo Finance → save_data.py → Data_5Dec25.xlsx (cache)
+                                      ↓
+                              data_preparation.py
+                                      ↓
+                              backtest_data.xlsx
+```
+
+**Benefits:**
+- No repeated Yahoo Finance downloads
+- Faster subsequent runs
+- Dashboard loads holdings from Excel (no live API calls)
+
+#### 7. Dashboard Enhancements
+
+**Structure (6 Sections):**
+1. **EW vs EEM**: Performance chart, stats, monthly alpha heatmap, return & alpha distribution
+2. **Momentum vs EEM**: Performance chart, stats
+3. **Momentum vs EW**: Head-to-head comparison, monthly alpha heatmap
+4. **Monthly Returns**: Momentum portfolio heatmap
+5. **Holdings**: 24 stocks with wealth index, country, sector exposure
+6. **Trade Log**: Last 4 weeks (reduced from 3 months)
+
+**Summary Box Updates:**
+- Three strategies displayed with emoji icons
+- Color-coded alpha (green = positive, red = negative)
+- Dynamic trading cost display from config
+
+**Technical Improvements:**
+- Holdings loaded from `Data_5Dec25.xlsx` (no Yahoo Finance)
+- Wealth Index column shows normalized total return
+- `n_hold` calculated dynamically from universe size
+- All strategy labels dynamically linked to `config.py`
+
+#### 8. Output Organization
+
+| Folder | Contents | Naming |
+|--------|----------|--------|
+| `ScenarioGrid/` | Backtest results, heatmaps | `backtest_results_{timestamp}.xlsx` |
+| `SimulationTest/` | Train/Test charts, results | `simulation_train_{timestamp}.png` |
+| `Dashboards/` | HTML dashboards | `dashboard_train_{timestamp}.html` |
+
+Plus root-level copies for easy access: `dashboard.html`, `backtest_results.xlsx`
+
+#### 9. Code Improvements
+
+- Removed Yahoo Finance dependency from dashboards
+- Dynamic `n_hold` calculation: `int(n_stocks * (1 - OPTIMAL_EXCLUSION))`
+- Turnover-based cost calculation per exclusion ratio
+- All hardcoded values moved to `config.py`
+
+---
+
 ## Disclaimer
+
+**Property of Jabal Asset Management. Author: Barry Ehrlich.**
 
 This strategy and documentation are for **educational and research purposes only**. Past performance does not guarantee future results. Always conduct your own due diligence before making investment decisions.
 
 ---
 
-*Last Updated: December 2025*
-*Version: 2.0*
-*Optimal Strategy: 8-week lookback, 40% exclusion*
+*Last Updated: December 5, 2025*
+*Version: 3.0*
+*Stock Universe: 124 EM Dividend Aristocrats*
+*Strategies Compared: EEM, EW Buy & Hold, Momentum 28w/80%*

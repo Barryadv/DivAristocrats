@@ -10,6 +10,16 @@ ENV/
 # Excel temp files
 ~$*.xlsx
 
+# Legacy data files (old versions)
+DivArist.xlsx
+DivUnScreen*.xlsx
+trading_statistics.xlsx
+
+# Debug/test charts
+data_inspection_chart.png
+optimal_vs_benchmarks.png
+portfolio_simulation_comparison.png
+
 # IDE
 .vscode/
 .idea/

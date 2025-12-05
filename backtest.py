@@ -363,9 +363,14 @@ def main():
     print(f"  Mean CAGR: {df_metrics['Annualized %'].mean():.2f}%")
     print(f"  Median CAGR: {df_metrics['Annualized %'].median():.2f}%")
     
-    # Save results to Excel
+    # Save results to Excel with timestamp
     script_dir = Path(__file__).parent
-    results_path = script_dir / "backtest_results.xlsx"
+    output_dir = script_dir / "ScenarioGrid"
+    output_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    results_path = output_dir / f"backtest_results_{timestamp}.xlsx"
     
     print(f"\nSTEP 4: Saving results to {results_path}...")
     print("="*60)
@@ -379,16 +384,23 @@ def main():
             portfolio_df[scenario_name] = result['portfolio']['Portfolio_Value']
         portfolio_df.to_excel(writer, sheet_name='Portfolio_Values')
     
+    # Also save to root for other modules to read
+    root_results_path = script_dir / "backtest_results.xlsx"
+    with pd.ExcelWriter(root_results_path, engine='openpyxl') as writer:
+        df_metrics.to_excel(writer, sheet_name='Performance_Metrics', index=False)
+        portfolio_df.to_excel(writer, sheet_name='Portfolio_Values')
+    
     print(f"Results saved to: {results_path}")
+    print(f"Also saved to: {root_results_path} (for other modules)")
     
     # Generate charts
     print("\nSTEP 5: Generating charts...")
     print("="*60)
     
-    chart_path = script_dir / "backtest_chart.png"
+    chart_path = output_dir / f"backtest_chart_{timestamp}.png"
     plot_backtest_results(results, str(chart_path))
     
-    heatmap_path = script_dir / "backtest_heatmap.png"
+    heatmap_path = output_dir / f"backtest_heatmap_{timestamp}.png"
     plot_heatmap(df_metrics, 'Annualized %', str(heatmap_path))
     
     return results, df_metrics
